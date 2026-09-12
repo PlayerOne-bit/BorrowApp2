@@ -29,7 +29,9 @@ public class Borrow {
     public int getBook_id() {
         return book_id;
     }
-
+    public void setDue_date(String dueDate){
+        due_date=dueDate;
+    }
     public String getDue_date() {
         return due_date;
     }

@@ -12,6 +12,7 @@ import com.app.borrowapp2.models.Book;
 import com.app.borrowapp2.models.Borrow;
 import com.app.borrowapp2.models.User;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class DatabaseRepository extends SQLiteOpenHelper {
@@ -65,8 +66,149 @@ public class DatabaseRepository extends SQLiteOpenHelper {
         return result!=0;
     }
     public boolean login(User user){
+        try(SQLiteDatabase db = this.getReadableDatabase()) {
+            try (Cursor cursor = db.query(
+                    TABLE_USER,
+                    null,
+                    COLUMN_USER_USERNAME + "=? AND " + COLUMN_USER_PASSWORD + "=?",
+                    new String[]{user.getUsername(), user.getPassword()},
+                    null, null, null)) {
+                return cursor.moveToFirst();
+            }
+        }catch (Exception e) {
+            return false;
+        }
+    }
+    public List<Book> getAllBooks(){
+        List<Book> books = new ArrayList<>();
         try(SQLiteDatabase db = this.getReadableDatabase()){
-            Cursor cursor = db.query(TABLE_USER,new String[]{user.getUsername(), user.getPassword()},"username=? AND password=?",);
+            try (Cursor cursor = db.query(
+                    TABLE_BOOK,
+                    null, null, null, null, null, COLUMN_BOOK_TITLE + " ASC"
+            )) {
+                if (cursor.moveToFirst()) {
+                    do {
+                        Book book = new Book(
+                                cursor.getInt(cursor.getColumnIndexOrThrow(COLUMN_BOOK_ID)),
+                                cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_BOOK_TITLE)),
+                                cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_BOOK_DESCRIPTION)),
+                                cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_BOOK_AUTHOR)),
+                                cursor.getInt(cursor.getColumnIndexOrThrow(COLUMN_BOOK_QUANTITY))
+                        );
+                        books.add(book);
+                    } while (cursor.moveToNext());
+                }
+            }
+        }
+        return books;
+    }
+    public List<Borrow> getAllBorrow(){
+        List<Borrow> borrows = new ArrayList<>();
+        try(SQLiteDatabase db = this.getReadableDatabase()){
+            try (Cursor cursor = db.query(
+                    TABLE_BOOK,
+                    null, null, null, null, null, COLUMN_BOOK_TITLE + " ASC"
+            )) {
+                if (cursor.moveToFirst()) {
+                    do {
+                        Borrow borrow = new Borrow(
+                                cursor.getInt(cursor.getColumnIndexOrThrow(COLUMN_BORROW_ID)),
+                                cursor.getInt(cursor.getColumnIndexOrThrow(COLUMN_BORROW_BOOK_ID)),
+                                cursor.getInt(cursor.getColumnIndexOrThrow(COLUMN_BORROW_USER_ID))
+                        );
+                        borrow.setDue_date(cursor.getString(cursor.getColumnIndexOrThrow(COLUMN_BORROW_DUE_DATE)));
+                        borrows.add(borrow);
+                    } while (cursor.moveToNext());
+                }
+            }
+        }
+        return borrows;
+    }
+    public boolean addBook(Book book){
+        long result=0;
+        try(SQLiteDatabase db = this.getWritableDatabase()){
+            ContentValues values = getValues(book);
+            result=db.insert(TABLE_BOOK,null,values);
+        }
+        return result!=0;
+    }
+    public boolean editBook(Book book){
+        int result=0;
+        try(SQLiteDatabase db = this.getWritableDatabase()){
+            ContentValues values=getValues(book);
+            result=db.update(TABLE_BOOK,values,COLUMN_BOOK_ID+"=?",new String[]{String.valueOf(book.getId())});
+        }
+        return result>0;
+    }
+    public boolean removeBook(int id){
+        int result=0;
+        try(SQLiteDatabase db = this.getWritableDatabase()){
+            result=db.delete(TABLE_BOOK, COLUMN_BOOK_ID+"=?",new String[]{String.valueOf(id)});
+        }
+        return result>0;
+    }
+    public boolean borrowBook(Borrow borrow) {
+        try (SQLiteDatabase db = this.getWritableDatabase()) {
+            db.beginTransaction();
+            try {
+                ContentValues borrowValues = getValues(borrow);
+                long insertResult = db.insert(TABLE_BORROW, null, borrowValues);
+
+                if (insertResult == -1) {
+                    return false;
+                }
+
+                String rawUpdateQuery =
+                        "UPDATE " + TABLE_BOOK +
+                                " SET " + COLUMN_BOOK_QUANTITY + " = " + COLUMN_BOOK_QUANTITY + " - " +
+                                "(SELECT COUNT(*) FROM " + TABLE_BORROW +
+                                " WHERE " + COLUMN_BORROW_USER_ID + "=? AND " + COLUMN_BORROW_BOOK_ID + "=?) " +
+                                "WHERE " + COLUMN_BOOK_ID + "=?";
+
+                db.execSQL(rawUpdateQuery, new String[]{
+                        String.valueOf(borrow.getUser_id()),
+                        String.valueOf(borrow.getBook_id()),
+                        String.valueOf(borrow.getBook_id())
+                });
+
+                db.setTransactionSuccessful();
+                return true;
+            } finally {
+                db.endTransaction();
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    public boolean returnBook(Borrow borrow) {
+        try (SQLiteDatabase db = this.getWritableDatabase()) {
+            db.beginTransaction();
+            try {
+                int deletedRows = db.delete(
+                        TABLE_BORROW,
+                        COLUMN_BORROW_USER_ID + "=? AND " + COLUMN_BORROW_BOOK_ID + "=?",
+                        new String[]{String.valueOf(borrow.getUser_id()), String.valueOf(borrow.getBook_id())}
+                );
+
+                if (deletedRows == 0) {
+                    return false;
+                }
+
+                String rawUpdateQuery =
+                        "UPDATE " + TABLE_BOOK +
+                                " SET " + COLUMN_BOOK_QUANTITY + " = " + COLUMN_BOOK_QUANTITY + " + 1 " +
+                                "WHERE " + COLUMN_BOOK_ID + "=?";
+
+                db.execSQL(rawUpdateQuery, new String[]{String.valueOf(borrow.getBook_id())});
+
+                db.setTransactionSuccessful();
+                return true;
+            } finally {
+                db.endTransaction();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
         }
     }
 
